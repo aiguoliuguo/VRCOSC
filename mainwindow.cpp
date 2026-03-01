@@ -40,6 +40,7 @@ void MainWindow::initWindow()
     setWindowTitle("VRCOSC");
     setUserInfoCardTitle("VRCOSC");
     setUserInfoCardSubTitle("VRChat OSC 控制台");
+    setUserInfoCardVisible(false);
 
     // 主题切换
     connect(this, &MainWindow::userInfoCardClicked, this, [=]() {

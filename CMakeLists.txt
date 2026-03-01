@@ -50,7 +50,7 @@ set(ELA_LIB "${ELA_ROOT}/lib/ElaWidgetTools.lib")
 set(ELA_DLL "${ELA_ROOT}/bin/ElaWidgetTools.dll")
 
 target_include_directories(VRCOSC PRIVATE ${ELA_INCLUDE_DIR})
-target_link_libraries(VRCOSC PRIVATE Qt${QT_VERSION_MAJOR}::Widgets ${ELA_LIB} pdh dxgi gdi32 wbemuuid)
+target_link_libraries(VRCOSC PRIVATE Qt${QT_VERSION_MAJOR}::Widgets ${ELA_LIB} pdh dxgi gdi32 wbemuuid sensorsapi)
 
 # 构建后自动将 ElaWidgetTools.dll 复制到输出目录
 add_custom_command(TARGET VRCOSC POST_BUILD

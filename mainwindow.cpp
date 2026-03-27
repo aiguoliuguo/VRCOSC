@@ -1,50 +1,34 @@
 #include "mainwindow.h"
 
-#include "homepage.h"
-#include "ElaContentDialog.h"
-#include "ElaText.h"
-#include "ElaTheme.h"
 #include "ElaDef.h"
+#include "ElaTheme.h"
+#include "homepage.h"
+#include "lighthousepage.h"
+#include "oscsettingspage.h"
+#include "settingspage.h"
 
 #include <QWidget>
 
-MainWindow::MainWindow(QWidget *parent)
+MainWindow::MainWindow(QWidget* parent)
     : ElaWindow(parent)
 {
     initWindow();
     initContent();
-
-    // 拦截默认关闭事件，弹出确认对话框
-    _closeDialog = new ElaContentDialog(this);
-    _closeDialog->setLeftButtonText("取消");
-    _closeDialog->setMiddleButtonText("最小化");
-    _closeDialog->setRightButtonText("退出");
-    connect(_closeDialog, &ElaContentDialog::rightButtonClicked, this, &MainWindow::closeWindow);
-    connect(_closeDialog, &ElaContentDialog::middleButtonClicked, this, [=]() {
-        _closeDialog->close();
-        showMinimized();
-    });
-    setIsDefaultClosed(false);
-    connect(this, &MainWindow::closeButtonClicked, this, [=]() {
-        _closeDialog->exec();
-    });
-
     moveToCenter();
 }
 
-MainWindow::~MainWindow() {}
+MainWindow::~MainWindow() = default;
 
 void MainWindow::initWindow()
 {
     resize(1100, 700);
     setWindowTitle("VRCOSC");
     setUserInfoCardTitle("VRCOSC");
-    setUserInfoCardSubTitle("VRChat OSC 控制台");
+    setUserInfoCardSubTitle(QStringLiteral("VRChat OSC \u63a7\u5236\u53f0"));
     setUserInfoCardVisible(false);
 
-    // 主题切换
     connect(this, &MainWindow::userInfoCardClicked, this, [=]() {
-        auto mode = eTheme->getThemeMode();
+        const auto mode = eTheme->getThemeMode();
         eTheme->setThemeMode(mode == ElaThemeType::Light ? ElaThemeType::Dark : ElaThemeType::Light);
     });
 }
@@ -52,11 +36,22 @@ void MainWindow::initWindow()
 void MainWindow::initContent()
 {
     _homePage = new HomePage(this);
-    addPageNode("主页", _homePage, ElaIconType::House);
-    addPageNode("OSC 设置", new QWidget(this), ElaIconType::Gear);
-    addPageNode("参数监控", new QWidget(this), ElaIconType::ChartLine);
+    _lighthousePage = new LighthousePage(this);
+    _oscSettingsPage = new OscSettingsPage(this);
+    _settingsPage = new SettingsPage(this);
+
+    connect(_oscSettingsPage, &OscSettingsPage::selectedParametersChanged,
+            _homePage, &HomePage::setOscSelectedParameters);
+    _homePage->setOscSelectedParameters(_oscSettingsPage->selectedParametersOrdered());
+
+    addPageNode(QStringLiteral("\u9996\u9875"), _homePage, ElaIconType::House);
+    addPageNode(QStringLiteral("\u706f\u5854\u7ba1\u7406"), _lighthousePage, ElaIconType::SatelliteDish);
+    addPageNode(QStringLiteral("OSC \u8bbe\u7f6e"), _oscSettingsPage, ElaIconType::Gear);
+    addPageNode(QStringLiteral("\u53c2\u6570\u76d1\u63a7"), new QWidget(this), ElaIconType::ChartLine);
 
     QString aboutKey;
-    addFooterNode("关于", aboutKey, 0, ElaIconType::CircleInfo);
-}
+    addFooterNode(QStringLiteral("\u5173\u4e8e"), aboutKey, 0, ElaIconType::CircleInfo);
 
+    QString settingsKey;
+    addFooterNode(QStringLiteral("\u8bbe\u7f6e"), _settingsPage, settingsKey, 0, ElaIconType::Gear);
+}

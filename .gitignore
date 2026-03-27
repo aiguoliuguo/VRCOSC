@@ -1,3 +1,5 @@
 build
 .qtcreator
 .spec-workflow
+config
+openhw_bridge/obj/Release

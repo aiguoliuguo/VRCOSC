@@ -4,7 +4,9 @@
 #include "ElaWindow.h"
 
 class HomePage;
-class ElaContentDialog;
+class LighthousePage;
+class OscSettingsPage;
+class SettingsPage;
 
 class MainWindow : public ElaWindow
 {
@@ -19,6 +21,8 @@ private:
     void initContent();
 
     HomePage*         _homePage{nullptr};
-    ElaContentDialog* _closeDialog{nullptr};
+    LighthousePage*   _lighthousePage{nullptr};
+    OscSettingsPage*  _oscSettingsPage{nullptr};
+    SettingsPage*     _settingsPage{nullptr};
 };
 #endif // MAINWINDOW_H

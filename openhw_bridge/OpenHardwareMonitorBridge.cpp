@@ -227,11 +227,15 @@ bool isPreferredCpuClockSensor(String^ name)
         && !containsIgnoreCase(name, "effective");
 }
 
-bool isCoreClockSensor(String^ name)
+bool isSplitCpuCoreClockSensor(String^ name)
 {
+    if (containsIgnoreCase(name, "effective"))
+        return false;
+
     return containsIgnoreCase(name, "core #")
         || containsIgnoreCase(name, "cpu core #")
-        || containsIgnoreCase(name, "core ");
+        || containsIgnoreCase(name, "p-core #")
+        || containsIgnoreCase(name, "e-core #");
 }
 
 bool isPreferredCpuPowerSensor(String^ name)
@@ -358,6 +362,8 @@ void collectCpuMetrics(IHardware^ hardware,
                        double% preferredVoltage,
                        double% fallbackVoltage,
                        double% preferredClockMHz,
+                       double% splitCoreClockSumMHz,
+                       int% splitCoreClockCount,
                        double% preferredPower,
                        double% preferredTemp,
                        double% fallbackTemp,
@@ -411,6 +417,9 @@ void collectCpuMetrics(IHardware^ hardware,
         if (sensor->SensorType == SensorType::Clock && value > 0.0) {
             if (isPreferredCpuClockSensor(name)) {
                 preferredClockMHz = Math::Max(preferredClockMHz, value);
+            } else if (isSplitCpuCoreClockSensor(name)) {
+                splitCoreClockSumMHz += value;
+                splitCoreClockCount++;
             }
             continue;
         }
@@ -428,6 +437,8 @@ void collectCpuMetrics(IHardware^ hardware,
                           preferredVoltage,
                           fallbackVoltage,
                           preferredClockMHz,
+                          splitCoreClockSumMHz,
+                          splitCoreClockCount,
                           preferredPower,
                           preferredTemp,
                           fallbackTemp,
@@ -749,6 +760,8 @@ extern "C" __declspec(dllexport) bool __cdecl OHM_GetSystemMetrics(OpenHardwareM
         double preferredCpuVoltage = 0.0;
         double fallbackCpuVoltage = 0.0;
         double preferredCpuClockMHz = 0.0;
+        double splitCpuCoreClockSumMHz = 0.0;
+        int splitCpuCoreClockCount = 0;
         double preferredCpuPower = 0.0;
         double preferredCpuTemp = 0.0;
         double fallbackCpuTemp = 0.0;
@@ -769,6 +782,8 @@ extern "C" __declspec(dllexport) bool __cdecl OHM_GetSystemMetrics(OpenHardwareM
                               preferredCpuVoltage,
                               fallbackCpuVoltage,
                               preferredCpuClockMHz,
+                              splitCpuCoreClockSumMHz,
+                              splitCpuCoreClockCount,
                               preferredCpuPower,
                               preferredCpuTemp,
                               fallbackCpuTemp,
@@ -778,8 +793,12 @@ extern "C" __declspec(dllexport) bool __cdecl OHM_GetSystemMetrics(OpenHardwareM
             collectBestGpuMetrics(hardware, metrics->gpu, metrics->vram, bestGpuScore, gpuSource);
         }
 
-        // CPU frequency only uses the "Cores (Average)" clock sensor.
-        const double finalCpuClockMHz = preferredCpuClockMHz;
+        // CPU frequency first uses "Cores (Average)".
+        // For Intel platforms without "Cores (Average)", fallback to arithmetic mean of split core clocks (P-Core/E-Core/Core #).
+        double finalCpuClockMHz = preferredCpuClockMHz;
+        if (finalCpuClockMHz <= 0.0 && splitCpuCoreClockCount > 0) {
+            finalCpuClockMHz = splitCpuCoreClockSumMHz / static_cast<double>(splitCpuCoreClockCount);
+        }
 
         // CPU usage only uses the "Total" load sensor.
         metrics->cpu.usagePercent = toRoundedPercent(preferredCpuLoad);

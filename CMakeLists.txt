@@ -134,6 +134,14 @@ elseif(EXISTS "${OPENHW_PREBUILT_LIB_ANYCPU}")
 elseif(EXISTS "${OPENHW_LIB_OUTPUT_X64}")
     set(OPENHW_PREBUILT_REFERENCE_LIB "${OPENHW_LIB_OUTPUT_X64}")
     set(OPENHW_REFERENCE_DIR "${OPENHW_LIB_OUTPUT_DIR}")
+elseif(EXISTS "${CMAKE_BINARY_DIR}/OpenHardwareMonitorLib_x64.dll")
+    # fallback: reuse runtime binaries already synchronized into current build dir
+    set(OPENHW_PREBUILT_REFERENCE_LIB "${CMAKE_BINARY_DIR}/OpenHardwareMonitorLib_x64.dll")
+    set(OPENHW_REFERENCE_DIR "${CMAKE_BINARY_DIR}")
+elseif(EXISTS "${CMAKE_BINARY_DIR}/OpenHardwareMonitorLib.dll")
+    # fallback: AnyCPU runtime in current build dir
+    set(OPENHW_PREBUILT_REFERENCE_LIB "${CMAKE_BINARY_DIR}/OpenHardwareMonitorLib.dll")
+    set(OPENHW_REFERENCE_DIR "${CMAKE_BINARY_DIR}")
 endif()
 
 if(DEFINED OPENHW_PREBUILT_REFERENCE_LIB AND EXISTS "${OPENHW_BRIDGE_PROJECT}" AND EXISTS "${OPENHW_MSBUILD}")

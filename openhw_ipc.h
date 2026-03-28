@@ -7,7 +7,7 @@ inline constexpr wchar_t kOpenHardwareMonitorPipeName[] =
     L"\\\\.\\pipe\\VRCOSC.OpenHardwareMonitor";
 inline constexpr std::uint32_t kOpenHardwareMonitorProtocolVersion = 1;
 inline constexpr std::uint32_t kOpenHardwareMonitorNameCapacity = 128;
-inline constexpr std::uint32_t kOpenHardwareMonitorDetailMessageCapacity = 512;
+inline constexpr std::uint32_t kOpenHardwareMonitorDetailMessageCapacity = 4096;
 
 struct OpenHardwareMonitorCpuMetrics
 {

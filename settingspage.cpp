@@ -45,11 +45,11 @@ QString processNameFromPid(DWORD pid)
 {
     HANDLE processHandle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
     if (!processHandle)
-        return QStringLiteral("鏈煡杩涚▼");
+        return QStringLiteral("未知进程");
 
     wchar_t buffer[MAX_PATH] = {};
     DWORD size = MAX_PATH;
-    QString processName = QStringLiteral("鏈煡杩涚▼");
+    QString processName = QStringLiteral("未知进程");
     if (QueryFullProcessImageNameW(processHandle, 0, buffer, &size))
         processName = QFileInfo(QString::fromWCharArray(buffer)).fileName();
 
@@ -122,7 +122,7 @@ QString formatOccupancyMessage(quint16 port, const QVector<PortOccupancyInfo>& o
         pids->clear();
 
     if (occupancies.isEmpty())
-        return QStringLiteral("绔彛 %1 鏈鍗犵敤").arg(port);
+        return QStringLiteral("端口 %1 未被占用").arg(port);
 
     struct DisplayInfo
     {
@@ -148,7 +148,7 @@ QString formatOccupancyMessage(quint16 port, const QVector<PortOccupancyInfo>& o
         const DisplayInfo& displayInfo = displayInfos[pid];
         QStringList protocols = displayInfo.protocols.values();
         protocols.sort();
-        details.push_back(QStringLiteral("%1 (PID: %2锛屽崗璁? %3)")
+        details.push_back(QStringLiteral("%1 (PID: %2，协议: %3)")
                               .arg(displayInfo.processName)
                               .arg(pid)
                               .arg(protocols.join('/')));
@@ -158,7 +158,7 @@ QString formatOccupancyMessage(quint16 port, const QVector<PortOccupancyInfo>& o
     if (pids)
         *pids = uniquePids;
 
-    return QStringLiteral("绔彛 %1 宸茶鍗犵敤锛歕n%2").arg(port).arg(details.join('\n'));
+    return QStringLiteral("端口 %1 已被占用：\n%2").arg(port).arg(details.join('\n'));
 }
 
 bool terminateProcessByPid(quint32 pid, QString* errorMessage)
@@ -166,7 +166,7 @@ bool terminateProcessByPid(quint32 pid, QString* errorMessage)
     HANDLE processHandle = OpenProcess(PROCESS_TERMINATE | SYNCHRONIZE, FALSE, pid);
     if (!processHandle) {
         if (errorMessage)
-            *errorMessage = QStringLiteral("鏃犳硶鎵撳紑杩涚▼锛岄敊璇爜锛?1").arg(GetLastError());
+            *errorMessage = QStringLiteral("无法打开进程，错误码：%1").arg(GetLastError());
         return false;
     }
 
@@ -177,13 +177,13 @@ bool terminateProcessByPid(quint32 pid, QString* errorMessage)
 
     if (!terminated) {
         if (errorMessage)
-            *errorMessage = QStringLiteral("缁撴潫澶辫触锛岄敊璇爜锛?1").arg(errorCode);
+            *errorMessage = QStringLiteral("结束失败，错误码：%1").arg(errorCode);
         return false;
     }
 
     if (waitResult != WAIT_OBJECT_0) {
         if (errorMessage)
-            *errorMessage = QStringLiteral("绛夊緟杩涚▼閫€鍑哄け璐ワ紝缁撴灉鐮侊細%1").arg(waitResult);
+            *errorMessage = QStringLiteral("等待进程退出失败，结果码：%1").arg(waitResult);
         return false;
     }
 
@@ -249,7 +249,7 @@ void SettingsPage::detectPortOccupancy()
     if (!isValid) {
         _occupiedPids.clear();
         _terminateButton->setEnabled(false);
-        setStatusMessage(QStringLiteral("璇疯緭鍏?1 - 65535 涔嬮棿鐨勭鍙ｅ彿"), true);
+        setStatusMessage(QStringLiteral("请输入 1 - 65535 之间的端口号"), true);
         return;
     }
 
@@ -268,7 +268,7 @@ void SettingsPage::sendOscChatboxTest()
 
     const QString message = _oscTestInputEdit->text().trimmed();
     if (message.isEmpty()) {
-        setOscTestStatusMessage(QStringLiteral("璇疯緭鍏ヨ鍙戦€佺殑鑱婂ぉ娴嬭瘯鏂囨湰"), true);
+        setOscTestStatusMessage(QStringLiteral("请输入要发送的聊天测试文本"), true);
         return;
     }
 
@@ -277,8 +277,8 @@ void SettingsPage::sendOscChatboxTest()
     QUdpSocket socket;
     const qint64 writtenBytes = socket.writeDatagram(packet, targetAddress, port);
     if (writtenBytes != packet.size()) {
-        const QString errorText = socket.errorString().isEmpty() ? QStringLiteral("鏈煡閿欒") : socket.errorString();
-        setOscTestStatusMessage(QStringLiteral("鍙戦€佸け璐ワ細%1").arg(errorText), true);
+        const QString errorText = socket.errorString().isEmpty() ? QStringLiteral("未知错误") : socket.errorString();
+        setOscTestStatusMessage(QStringLiteral("发送失败：%1").arg(errorText), true);
         return;
     }
 
@@ -290,7 +290,7 @@ void SettingsPage::terminatePortOccupancy()
     bool isValid = false;
     const quint16 port = currentPort(&isValid);
     if (!isValid) {
-        setStatusMessage(QStringLiteral("璇疯緭鍏?1 - 65535 涔嬮棿鐨勭鍙ｅ彿"), true);
+        setStatusMessage(QStringLiteral("请输入 1 - 65535 之间的端口号"), true);
         return;
     }
 
@@ -418,7 +418,7 @@ ElaScrollPageArea* SettingsPage::createOscPortCard(QWidget* parent)
 
     _portEdit = new ElaLineEdit(portRow);
     _portEdit->setText(QStringLiteral("9000"));
-    _portEdit->setPlaceholderText(QStringLiteral("璇疯緭鍏ョ鍙ｅ彿"));
+    _portEdit->setPlaceholderText(QStringLiteral("请输入端口号"));
     _portEdit->setClearButtonEnabled(false);
     _portEdit->setValidator(new QIntValidator(1, 65535, _portEdit));
     _portEdit->setFixedWidth(160);
@@ -433,14 +433,14 @@ ElaScrollPageArea* SettingsPage::createOscPortCard(QWidget* parent)
     buttonLayout->setSpacing(8);
 
     _detectButton = new ElaPushButton(QStringLiteral("Detect"), buttonRow);
-    _terminateButton = new ElaPushButton(QStringLiteral("缁撴潫鍗犵敤"), buttonRow);
+    _terminateButton = new ElaPushButton(QStringLiteral("结束占用"), buttonRow);
     _terminateButton->setEnabled(false);
 
     buttonLayout->addWidget(_detectButton);
     buttonLayout->addWidget(_terminateButton);
     buttonLayout->addStretch();
 
-    _statusText = new ElaText(QStringLiteral("姝ｅ湪妫€娴嬬鍙ｇ姸鎬?.."), card);
+    _statusText = new ElaText(QStringLiteral("正在检测端口状态..."), card);
     _statusText->setWordWrap(true);
     _statusText->setMinimumHeight(72);
     _statusText->setTextPixelSize(14);

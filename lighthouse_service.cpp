@@ -801,11 +801,11 @@ void LighthouseService::_onDiscoveryTimeout()
     stopDiscovery();
 
     if (_devices.isEmpty()) {
-        setStatusText(QStringLiteral("鎵弿瀹屾垚锛屾湭鍙戠幇 Lighthouse 鍩虹珯"));
+        setStatusText(QStringLiteral("扫描完成，未发现 Lighthouse 基站"));
         return;
     }
 
-    setStatusText(QStringLiteral("鎵弿瀹屾垚锛屽凡鍙戠幇 %1 鍙?Lighthouse 鍩虹珯").arg(_devices.size()));
+    setStatusText(QStringLiteral("扫描完成，已发现 %1 台 Lighthouse 基站").arg(_devices.size()));
 }
 
 void LighthouseService::controlDevice(int index, LighthouseControlOperation operation)
@@ -967,7 +967,7 @@ void LighthouseService::controlAllDevices(LighthouseControlOperation operation)
         emit operationFinished(false,
                                QStringLiteral("批量控制"),
                                QStringLiteral("请先扫描并发现 Lighthouse 基站"));
-        setStatusText(QStringLiteral("璇峰厛鎵弿骞跺彂鐜?Lighthouse 鍩虹珯"));
+        setStatusText(QStringLiteral("请先扫描并发现 Lighthouse 基站"));
         return;
     }
 
@@ -975,7 +975,7 @@ void LighthouseService::controlAllDevices(LighthouseControlOperation operation)
     qInfo().noquote() << QStringLiteral("Lighthouse: controlAllDevices count=%1 op=%2")
                              .arg(devices.size())
                              .arg(operationName(operation));
-    setStatusText(QStringLiteral("姝ｅ湪鎵归噺鎵ц鈥?%1鈥濇搷浣?...").arg(operationName(operation)));
+    setStatusText(QStringLiteral("正在批量执行“%1”...").arg(operationName(operation)));
 
     auto weakThis = QPointer<LighthouseService>(this);
     auto* worker = QThread::create([weakThis, devices, operation]() {
@@ -1006,17 +1006,17 @@ void LighthouseService::controlAllDevices(LighthouseControlOperation operation)
             } catch (...) {
                 ++failedCount;
                 if (firstError.isEmpty())
-                    firstError = QStringLiteral("鏈煡閿欒");
+                    firstError = QStringLiteral("未知错误");
             }
         }
 
-        QString statusText = QStringLiteral("鎵归噺鈥?%1鈥濆畬鎴愶細鎴愬姛 %2 鍙?").arg(operationName(operation)).arg(successCount);
+        QString statusText = QStringLiteral("批量“%1”完成：成功 %2 台").arg(operationName(operation)).arg(successCount);
         if (skippedCount > 0)
-            statusText += QStringLiteral("锛岃烦杩?%1 鍙?").arg(skippedCount);
+            statusText += QStringLiteral("，跳过 %1 台").arg(skippedCount);
         if (failedCount > 0)
-            statusText += QStringLiteral("锛屽け璐?%1 鍙?").arg(failedCount);
+            statusText += QStringLiteral("，失败 %1 台").arg(failedCount);
         if (!firstError.isEmpty())
-            statusText += QStringLiteral("锛?1").arg(firstError);
+            statusText += QStringLiteral("：%1").arg(firstError);
 
         if (!weakThis)
             return;

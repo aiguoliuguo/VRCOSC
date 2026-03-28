@@ -104,6 +104,13 @@ bool hasCpuMetrics(const OpenHardwareMonitorCpuMetrics& metrics)
         || metrics.powerW > 0;
 }
 
+bool shouldCaptureCpuSensorRawLog(const OpenHardwareMonitorCpuMetrics& metrics)
+{
+    return metrics.frequencyGHz <= 0.0
+        && metrics.temperatureC <= 0
+        && metrics.powerW <= 0;
+}
+
 bool hasMemoryMetrics(const OpenHardwareMonitorMemoryMetrics& metrics)
 {
     return metrics.totalMB > 0
@@ -145,21 +152,68 @@ bool isDiscreteGpuType(HardwareType hardwareType)
         || hardwareType == HardwareType::GpuAmd;
 }
 
+void appendCpuSensorSnapshotRecursive(IHardware^ hardware,
+                                      System::Text::StringBuilder^ builder,
+                                      int% totalSensors,
+                                      int% sensorsWithValue,
+                                      bool% truncated)
+{
+    if (hardware == nullptr || builder == nullptr)
+        return;
+
+    if (truncated)
+        return;
+
+    constexpr int kMaxCpuSensorDebugChars = 3000;
+    String^ hardwareHeader = String::Format(L"[hw={0}]", safeText(hardware->Name));
+    if (builder->Length + hardwareHeader->Length <= kMaxCpuSensorDebugChars) {
+        builder->Append(hardwareHeader);
+    } else {
+        truncated = true;
+        return;
+    }
+
+    for each (ISensor ^ sensor in hardware->Sensors) {
+        if (sensor == nullptr)
+            continue;
+
+        totalSensors++;
+        const bool hasValue = sensor->Value.HasValue;
+        if (hasValue)
+            sensorsWithValue++;
+
+        String^ sensorValue = hasValue
+            ? sensor->Value.Value.ToString("F3", System::Globalization::CultureInfo::InvariantCulture)
+            : String::Empty;
+        String^ item = String::Format(
+            L"{0}/{1}={2};",
+            sensor->SensorType.ToString(),
+            safeText(sensor->Name),
+            hasValue ? sensorValue : L"NA");
+        if (builder->Length + item->Length > kMaxCpuSensorDebugChars) {
+            truncated = true;
+            builder->Append(L"...");
+            break;
+        }
+
+        builder->Append(item);
+    }
+
+    if (truncated)
+        return;
+
+    for each (IHardware ^ child in hardware->SubHardware)
+        appendCpuSensorSnapshotRecursive(child, builder, totalSensors, sensorsWithValue, truncated);
+}
+
 bool isPreferredCpuTemperatureSensor(String^ name)
 {
-    return containsIgnoreCase(name, "package")
-        || containsIgnoreCase(name, "tctl")
-        || containsIgnoreCase(name, "tdie")
-        || containsIgnoreCase(name, "ccd")
-        || containsIgnoreCase(name, "die");
+    return containsIgnoreCase(name, "core (tctl/tdie)");
 }
 
 bool isFallbackCpuTemperatureSensor(String^ name)
 {
-    return isPreferredCpuTemperatureSensor(name)
-        || containsIgnoreCase(name, "core")
-        || containsIgnoreCase(name, "cpu")
-        || containsIgnoreCase(name, "socket");
+    return containsIgnoreCase(name, "core average");
 }
 
 bool isPreferredCpuLoadSensor(String^ name)
@@ -169,9 +223,8 @@ bool isPreferredCpuLoadSensor(String^ name)
 
 bool isPreferredCpuClockSensor(String^ name)
 {
-    return containsIgnoreCase(name, "average effective")
-        || containsIgnoreCase(name, "cores (average effective)")
-        || containsIgnoreCase(name, "average");
+    return containsIgnoreCase(name, "cores (average)")
+        && !containsIgnoreCase(name, "effective");
 }
 
 bool isCoreClockSensor(String^ name)
@@ -188,27 +241,12 @@ bool isPreferredCpuPowerSensor(String^ name)
 
 bool isPreferredCpuVoltageSensor(String^ name)
 {
-    return containsIgnoreCase(name, "package")
-        || containsIgnoreCase(name, "cpu")
-        || containsIgnoreCase(name, "soc")
-        || containsIgnoreCase(name, "vdd")
-        || containsIgnoreCase(name, "svi2");
+    return containsIgnoreCase(name, "cpu core");
 }
 
-bool isCpuCoreVoltageSensor(String^ name)
+bool isFallbackCpuVoltageSensor(String^ name)
 {
-    return containsIgnoreCase(name, "vcore")
-        || containsIgnoreCase(name, "core")
-        || containsIgnoreCase(name, "vid");
-}
-
-bool isCpuRelatedVoltageSensor(String^ name)
-{
-    return containsIgnoreCase(name, "cpu")
-        || containsIgnoreCase(name, "soc")
-        || containsIgnoreCase(name, "vdd")
-        || containsIgnoreCase(name, "svi2")
-        || containsIgnoreCase(name, "package");
+    return containsIgnoreCase(name, "cpu soc");
 }
 
 bool isPhysicalMemoryHardware(IHardware^ hardware)
@@ -317,14 +355,10 @@ void updateHardwareTree(IHardware^ hardware)
 
 void collectCpuMetrics(IHardware^ hardware,
                        double% preferredLoad,
-                       double% fallbackLoad,
                        double% preferredVoltage,
                        double% fallbackVoltage,
                        double% preferredClockMHz,
-                       double% fallbackClockMHz,
-                       int% fallbackClockCount,
                        double% preferredPower,
-                       double% fallbackPower,
                        double% preferredTemp,
                        double% fallbackTemp,
                        String^% cpuSource)
@@ -333,11 +367,6 @@ void collectCpuMetrics(IHardware^ hardware,
         return;
 
     const bool isCpuHardware = hardware->HardwareType == HardwareType::Cpu;
-    const bool isCpuRelatedHardware =
-        hardware->HardwareType == HardwareType::Motherboard
-        || hardware->HardwareType == HardwareType::SuperIO
-        || hardware->HardwareType == HardwareType::EmbeddedController;
-
     if (isCpuHardware && String::IsNullOrEmpty(cpuSource))
         cpuSource = safeText(hardware->Name);
 
@@ -352,23 +381,25 @@ void collectCpuMetrics(IHardware^ hardware,
             if (isCpuHardware) {
                 if (isPreferredCpuTemperatureSensor(name))
                     preferredTemp = Math::Max(preferredTemp, value);
-                else
+                else if (isFallbackCpuTemperatureSensor(name))
                     fallbackTemp = Math::Max(fallbackTemp, value);
-            } else if (isCpuRelatedHardware && isFallbackCpuTemperatureSensor(name)) {
-                fallbackTemp = Math::Max(fallbackTemp, value);
             }
             continue;
         }
 
-        if (sensor->SensorType == SensorType::Voltage
-            && isValidVoltage(value)
-            && isCpuRelatedHardware
-            && isCpuRelatedVoltageSensor(name)) {
-            if (isCpuCoreVoltageSensor(name)) {
-                fallbackVoltage = Math::Max(fallbackVoltage, value);
-            } else if (isPreferredCpuVoltageSensor(name)) {
-                preferredVoltage = Math::Max(preferredVoltage, value);
-            } else {
+        if (sensor->SensorType == SensorType::Load && value >= 0.0 && value <= 100.0) {
+            if (!isCpuHardware)
+                continue;
+            if (isPreferredCpuLoadSensor(name))
+                preferredLoad = Math::Max(preferredLoad, value);
+            continue;
+        }
+
+        if (sensor->SensorType == SensorType::Voltage && isValidVoltage(value)) {
+            if (isCpuHardware) {
+                if (isPreferredCpuVoltageSensor(name))
+                    preferredVoltage = Math::Max(preferredVoltage, value);
+            } else if (isFallbackCpuVoltageSensor(name)) {
                 fallbackVoltage = Math::Max(fallbackVoltage, value);
             }
             continue;
@@ -377,32 +408,9 @@ void collectCpuMetrics(IHardware^ hardware,
         if (!isCpuHardware)
             continue;
 
-        if (sensor->SensorType == SensorType::Load && value >= 0.0 && value <= 100.0) {
-            if (isPreferredCpuLoadSensor(name))
-                preferredLoad = Math::Max(preferredLoad, value);
-            else
-                fallbackLoad = Math::Max(fallbackLoad, value);
-            continue;
-        }
-
-        if (sensor->SensorType == SensorType::Voltage && isValidVoltage(value)) {
-            if (isCpuCoreVoltageSensor(name)) {
-                fallbackVoltage = Math::Max(fallbackVoltage, value);
-            } else if (isPreferredCpuVoltageSensor(name))
-                preferredVoltage = Math::Max(preferredVoltage, value);
-            else
-                fallbackVoltage = Math::Max(fallbackVoltage, value);
-            continue;
-        }
-
         if (sensor->SensorType == SensorType::Clock && value > 0.0) {
             if (isPreferredCpuClockSensor(name)) {
                 preferredClockMHz = Math::Max(preferredClockMHz, value);
-            } else if (isCoreClockSensor(name)) {
-                fallbackClockMHz += value;
-                fallbackClockCount++;
-            } else {
-                fallbackClockMHz = Math::Max(fallbackClockMHz, value);
             }
             continue;
         }
@@ -410,22 +418,17 @@ void collectCpuMetrics(IHardware^ hardware,
         if (sensor->SensorType == SensorType::Power && value > 0.0) {
             if (isPreferredCpuPowerSensor(name))
                 preferredPower = Math::Max(preferredPower, value);
-            else
-                fallbackPower = Math::Max(fallbackPower, value);
+            // CPU power only uses the "Package" power sensor.
         }
     }
 
     for each (IHardware ^ child in hardware->SubHardware)
         collectCpuMetrics(child,
                           preferredLoad,
-                          fallbackLoad,
                           preferredVoltage,
                           fallbackVoltage,
                           preferredClockMHz,
-                          fallbackClockMHz,
-                          fallbackClockCount,
                           preferredPower,
-                          fallbackPower,
                           preferredTemp,
                           fallbackTemp,
                           cpuSource);
@@ -743,14 +746,10 @@ extern "C" __declspec(dllexport) bool __cdecl OHM_GetSystemMetrics(OpenHardwareM
         }
 
         double preferredCpuLoad = 0.0;
-        double fallbackCpuLoad = 0.0;
         double preferredCpuVoltage = 0.0;
         double fallbackCpuVoltage = 0.0;
         double preferredCpuClockMHz = 0.0;
-        double fallbackCpuClockMHz = 0.0;
-        int fallbackCpuClockCount = 0;
         double preferredCpuPower = 0.0;
-        double fallbackCpuPower = 0.0;
         double preferredCpuTemp = 0.0;
         double fallbackCpuTemp = 0.0;
         String^ cpuSource = String::Empty;
@@ -767,14 +766,10 @@ extern "C" __declspec(dllexport) bool __cdecl OHM_GetSystemMetrics(OpenHardwareM
             updateHardwareTree(hardware);
             collectCpuMetrics(hardware,
                               preferredCpuLoad,
-                              fallbackCpuLoad,
                               preferredCpuVoltage,
                               fallbackCpuVoltage,
                               preferredCpuClockMHz,
-                              fallbackCpuClockMHz,
-                              fallbackCpuClockCount,
                               preferredCpuPower,
-                              fallbackCpuPower,
                               preferredCpuTemp,
                               fallbackCpuTemp,
                               cpuSource);
@@ -783,15 +778,18 @@ extern "C" __declspec(dllexport) bool __cdecl OHM_GetSystemMetrics(OpenHardwareM
             collectBestGpuMetrics(hardware, metrics->gpu, metrics->vram, bestGpuScore, gpuSource);
         }
 
-        const double finalCpuClockMHz =
-            preferredCpuClockMHz > 0.0 ? preferredCpuClockMHz
-            : (fallbackCpuClockCount > 0 ? fallbackCpuClockMHz / fallbackCpuClockCount : fallbackCpuClockMHz);
+        // CPU frequency only uses the "Cores (Average)" clock sensor.
+        const double finalCpuClockMHz = preferredCpuClockMHz;
 
-        metrics->cpu.usagePercent = toRoundedPercent(preferredCpuLoad > 0.0 ? preferredCpuLoad : fallbackCpuLoad);
+        // CPU usage only uses the "Total" load sensor.
+        metrics->cpu.usagePercent = toRoundedPercent(preferredCpuLoad);
+        // CPU voltage uses "CPU Core"; fallback to "CPU SOC" when unavailable.
         metrics->cpu.voltageV = preferredCpuVoltage > 0.0 ? preferredCpuVoltage : fallbackCpuVoltage;
         metrics->cpu.frequencyGHz = finalCpuClockMHz > 0.0 ? finalCpuClockMHz / 1000.0 : 0.0;
+        // CPU temperature uses "Core (Tctl/Tdie)"; fallback to "Core Average" when unavailable.
         metrics->cpu.temperatureC = toRoundedTemperature(preferredCpuTemp > 0.0 ? preferredCpuTemp : fallbackCpuTemp);
-        metrics->cpu.powerW = toRoundedPower(preferredCpuPower > 0.0 ? preferredCpuPower : fallbackCpuPower);
+        // CPU power only uses the "Package" power sensor.
+        metrics->cpu.powerW = toRoundedPower(preferredCpuPower);
         metrics->memory.frequencyMHz = bestRamClockMHz > 0.0 ? static_cast<int>(bestRamClockMHz + 0.5) : 0;
         copyManagedStringToBuffer(cpuSource, metrics->cpuName);
         copyManagedStringToBuffer(gpuSource, metrics->gpuName);
@@ -823,6 +821,35 @@ extern "C" __declspec(dllexport) bool __cdecl OHM_GetSystemMetrics(OpenHardwareM
             metrics->vram.usedMB,
             metrics->vram.totalMB,
             hasMetrics);
+
+        if (shouldCaptureCpuSensorRawLog(metrics->cpu)) {
+            int totalCpuSensors = 0;
+            int cpuSensorsWithValue = 0;
+            bool cpuSensorRawLogTruncated = false;
+            System::Text::StringBuilder^ cpuSensorRawLog = gcnew System::Text::StringBuilder();
+
+            if (hardwareList != nullptr) {
+                for each (IHardware ^ hardware in hardwareList) {
+                    if (hardware != nullptr && hardware->HardwareType == HardwareType::Cpu) {
+                        appendCpuSensorSnapshotRecursive(hardware,
+                                                         cpuSensorRawLog,
+                                                         totalCpuSensors,
+                                                         cpuSensorsWithValue,
+                                                         cpuSensorRawLogTruncated);
+                    }
+                }
+            }
+
+            const int cpuSensorsWithoutValue = totalCpuSensors - cpuSensorsWithValue;
+            status += String::Format(
+                L" cpuSensorRaw={{total={0},withValue={1},withoutValue={2},truncated={3},items={4}}}",
+                totalCpuSensors,
+                cpuSensorsWithValue,
+                cpuSensorsWithoutValue,
+                cpuSensorRawLogTruncated,
+                safeText(cpuSensorRawLog->ToString()));
+        }
+
         setLastStatus(status);
         return hasMetrics;
     } catch (Exception^ ex) {

@@ -50,7 +50,7 @@ void logOpenHardwareMonitorHelperEvent(const wchar_t* message)
     SYSTEMTIME localTime{};
     GetLocalTime(&localTime);
 
-    wchar_t line[1024] = {};
+    wchar_t line[12288] = {};
     const int length = swprintf_s(
         line,
         L"%04u-%02u-%02uT%02u:%02u:%02u.%03u pid=%lu %ls\r\n",
@@ -230,8 +230,18 @@ void collectSystemMetrics(OpenHardwareMonitorBridgeState& bridge,
                              static_cast<int>(kOpenHardwareMonitorDetailMessageCapacity));
     }
 
+    std::wstring detailForLog = response.detailMessage[0] == L'\0'
+        ? std::wstring(L"<empty>")
+        : std::wstring(response.detailMessage);
+    constexpr std::size_t kDetailLogLimit = 3000;
+    if (detailForLog.size() > kDetailLogLimit) {
+        detailForLog.resize(kDetailLogLimit);
+        detailForLog += L"...";
+    }
+
     logOpenHardwareMonitorHelperMessage(
-        L"get system metrics success=" + std::to_wstring(hasMetrics ? 1u : 0u));
+        L"get system metrics success=" + std::to_wstring(hasMetrics ? 1u : 0u)
+        + L" detail=" + detailForLog);
 }
 
 bool connectClientOrParentExit(HANDLE pipe, HANDLE parentProcess, bool& parentExited)
